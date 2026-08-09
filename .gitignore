@@ -1,0 +1,8 @@
+token.txt
+*.token
+.env
+.env.*
+*.pem
+*.p12
+*.mobileprovision
+.DS_Store
