@@ -1,0 +1,108 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Repo a compilar (owner/nombre), ej: adro0303/mcqueens-web"
+        required: true
+      ref:
+        description: "Rama, tag o commit"
+        required: false
+        default: "main"
+      app_dir:
+        description: "Carpeta dentro del repo donde esta el proyecto Expo (usa . si esta en la raiz)"
+        required: false
+        default: "."
+      ipa_name:
+        description: "Nombre del artefacto .ipa resultante"
+        required: false
+        default: "app-unsigned"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout target project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          path: target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Select latest available Xcode
+        run: |
+          ls /Applications | grep -i Xcode
+          LATEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -n1)
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Install JS dependencies
+        working-directory: target/${{ inputs.app_dir }}
+        run: npm install
+
+      - name: Prebuild native iOS project
+        working-directory: target/${{ inputs.app_dir }}
+        run: npx expo prebuild --platform ios --non-interactive
+
+      - name: Install CocoaPods dependencies
+        working-directory: target/${{ inputs.app_dir }}/ios
+        run: pod install
+
+      - name: Find workspace and scheme
+        id: target_scheme
+        working-directory: target/${{ inputs.app_dir }}
+        run: |
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -n1)
+          PROJECT=$(ls -d ios/*.xcodeproj | head -n1)
+          SCHEME=$(basename "$PROJECT" .xcodeproj)
+          echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Workspace: $WORKSPACE / Scheme: $SCHEME"
+          echo "All schemes in workspace (for reference):"
+          xcodebuild -list -workspace "$WORKSPACE"
+
+      - name: Build (unsigned)
+        working-directory: target/${{ inputs.app_dir }}
+        run: |
+          xcodebuild \
+            -workspace "${{ steps.target_scheme.outputs.workspace }}" \
+            -scheme "${{ steps.target_scheme.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            build
+
+      - name: Package unsigned IPA
+        working-directory: target/${{ inputs.app_dir }}
+        run: |
+          echo "Build products:"
+          find build/DerivedData/Build/Products -maxdepth 2
+          APP_PATH=$(find build/DerivedData/Build/Products -maxdepth 2 -name "*.app" -type d | head -n1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found in build products"
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          mkdir -p build/Payload
+          cp -r "$APP_PATH" build/Payload/
+          cd build
+          zip -r "${{ inputs.ipa_name }}.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.ipa_name }}
+          path: target/${{ inputs.app_dir }}/build/${{ inputs.ipa_name }}.ipa
+          retention-days: 14
