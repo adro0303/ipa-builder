@@ -117,12 +117,16 @@ gh workflow run build-ipa.yml --repo TU-USUARIO/ipa-builder \
 | `ref` | Rama, tag o commit (por defecto `main`) |
 | `app_dir` | Carpeta con `package.json`/`app.json` (`.` si está en la raíz) |
 | `ipa_name` | Nombre que le quieres dar al `.ipa` resultante |
+| `runner` | `macos-latest` (macOS 26, Xcode 26, SDK iOS 26; por defecto) o `xcode-27` (macOS 27, Xcode 27, **SDK iOS 27**, imagen en preview de GitHub) |
+| `xcode_version` | Xcode a usar, ej. `27.1`. Vacío = el más reciente en `macos-latest`, o el Xcode por defecto de la imagen en `xcode-27` |
 
 ¿Prefieres hacerlo con clics? Ve a la pestaña **Actions** de tu copia de este
 repo → **Build unsigned iOS IPA** → **Run workflow**, y rellena los mismos
 campos.
 
 Cuando termine (~10-15 min), abre esa ejecución → **Artifacts** → descarga el `.ipa`.
+
+> **¿Compilas para iOS 27?** Pasa `-f runner=xcode-27`. Las apps enlazadas con el SDK de iOS 27 deben además adoptar el ciclo de vida UIScene, o iOS 27 las cierra al abrirlas.
 
 ## 💡 Cosas a tener en cuenta
 

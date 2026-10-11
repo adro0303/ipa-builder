@@ -18,10 +18,24 @@ on:
         description: "Nombre del artefacto .ipa resultante"
         required: false
         default: "app-unsigned"
+      runner:
+        description: "Runner macOS. macos-latest = macOS 26 + Xcode 26 (SDK iOS 26). xcode-27 = macOS 27 + Xcode 27 (SDK iOS 27, imagen en preview)"
+        type: choice
+        required: false
+        default: "macos-latest"
+        options:
+          - macos-latest
+          - xcode-27
+      xcode_version:
+        description: "Xcode a usar, ej: 27.1. Vacio = el mas reciente (macos-latest) o el Xcode por defecto de la imagen (xcode-27)"
+        required: false
+        default: ""
 
 jobs:
   build:
-    runs-on: macos-latest
+    # macos-latest = macOS 26 / Xcode 26. El label xcode-27 = macOS 27 / Xcode 27 (SDK iOS 27), imagen en preview:
+    # https://github.com/actions/runner-images/issues/14404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     steps:
       - name: Checkout target project
@@ -36,12 +50,28 @@ jobs:
         with:
           node-version: 20
 
-      - name: Select latest available Xcode
+      - name: Select Xcode
+        env:
+          XCODE_VERSION: ${{ inputs.xcode_version }}
+          RUNNER_LABEL: ${{ inputs.runner }}
         run: |
           ls /Applications | grep -i Xcode
-          LATEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -n1)
-          sudo xcode-select -s "$LATEST"
+          if [ -n "$XCODE_VERSION" ]; then
+            APP="/Applications/Xcode_$XCODE_VERSION.app"
+          elif [ "$RUNNER_LABEL" = "xcode-27" ]; then
+            # Xcode por defecto de la imagen. "El mas reciente" podria elegir una beta (ej. Xcode_27.2_beta_2.app).
+            APP="/Applications/Xcode.app"
+          else
+            APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -n1)
+          fi
+          if [ ! -d "$APP" ]; then
+            echo "::error::$APP no existe en este runner"
+            exit 1
+          fi
+          echo "Using $APP"
+          sudo xcode-select -s "$APP"
           xcodebuild -version
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install JS dependencies
         working-directory: target/${{ inputs.app_dir }}
